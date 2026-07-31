@@ -356,6 +356,9 @@ Let's make this a daily habit for better fluency!`;
             currentPositionLabel.textContent = `1 / ${sentences.length}`;
             updateProgress();
             updateTimerDisplay();
+
+            // スクリプト読み込み時に先頭2文をバックグラウンドでプリロードしておく
+            preloadAhead(0);
         }
 
         function startTimer() {
@@ -381,6 +384,16 @@ Let's make this a daily habit for better fluency!`;
         function updateTimerDisplay() {
             const currentTotalElapsed = cumulativeDurations[currentIndex] || 0;
             timeDisplay.textContent = `${formatTime(currentTotalElapsed)} / ${formatTime(totalEstimatedTime)}`;
+        }
+
+        // 次の文の音声をバックグラウンドで事前取得（プリロード）する関数
+        function preloadAhead(fromIndex) {
+            const currentRate = parseFloat(rateSelect.value);
+            [fromIndex, fromIndex + 1, fromIndex + 2].forEach(idx => {
+                if (idx >= 0 && idx < sentences.length) {
+                    fetchExternalAudio(sentences[idx], currentRate);
+                }
+            });
         }
 
         async function fetchExternalAudio(text, rate) {
@@ -463,6 +476,9 @@ Let's make this a daily habit for better fluency!`;
             isPlaying = true;
             updatePlayButtonState();
 
+            // 現在再生を開始した直後に、次の2文をバックグラウンドで先読み開始
+            preloadAhead(currentIndex + 1);
+
             const textToSpeak = sentences[currentIndex];
             const currentRate = parseFloat(rateSelect.value);
 
@@ -501,31 +517,34 @@ Let's make this a daily habit for better fluency!`;
         function playWithWebSpeech(textToSpeak, rate) {
             window.speechSynthesis.cancel();
 
-            const currentUtterance = new SpeechSynthesisUtterance(textToSpeak);
-            currentUtterance.lang = 'en-US';
-            currentUtterance.rate = rate;
-
-            currentUtterance.onstart = () => {
-                startTimer();
-            };
-
-            currentUtterance.onend = () => {
+            setTimeout(() => {
                 if (!isPlaying) return;
-                if (currentIndex < sentences.length - 1) {
-                    playSentence(currentIndex + 1);
-                } else {
+
+                const currentUtterance = new SpeechSynthesisUtterance(textToSpeak);
+                currentUtterance.lang = 'en-US';
+                currentUtterance.rate = rate;
+
+                currentUtterance.onstart = () => {
+                    startTimer();
+                };
+
+                currentUtterance.onend = () => {
+                    if (!isPlaying) return;
+                    if (currentIndex < sentences.length - 1) {
+                        playSentence(currentIndex + 1);
+                    } else {
+                        stopAudio();
+                        timeDisplay.textContent = `${formatTime(totalEstimatedTime)} / ${formatTime(totalEstimatedTime)}`;
+                    }
+                };
+
+                currentUtterance.onerror = () => {
                     stopAudio();
-                    timeDisplay.textContent = `${formatTime(totalEstimatedTime)} / ${formatTime(totalEstimatedTime)}`;
-                }
-            };
+                };
 
-            currentUtterance.onerror = () => {
-                stopAudio();
-            };
-
-            window.speechSynthesis.speak(currentUtterance);
-            updateMediaSession(textToSpeak);
-            startTimer();
+                window.speechSynthesis.speak(currentUtterance);
+                updateMediaSession(textToSpeak);
+            }, 50);
         }
 
         function updateMediaSession(text) {
@@ -600,6 +619,7 @@ Let's make this a daily habit for better fluency!`;
         function stopAudio() {
             window.speechSynthesis.cancel();
             audioPlayer.pause();
+            audioPlayer.currentTime = 0;
             isPlaying = false;
             stopTimer();
             updatePlayButtonState();
@@ -661,6 +681,7 @@ Let's make this a daily habit for better fluency!`;
         });
 
         rateSelect.addEventListener('change', () => {
+            audioCache = {}; // 速度変更時はキャッシュをクリア
             calculateDurations();
             if (isPlaying) {
                 playSentence(currentIndex);
