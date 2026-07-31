@@ -138,21 +138,14 @@
             </div>
 
             <!-- メインコントローラー -->
-            <div class="flex items-center justify-between px-2">
+            <div class="flex items-center justify-around px-2">
                 
-                <!-- 音声選択ドロップダウン -->
-                <div class="flex flex-col items-start w-24">
-                    <select id="voice-select" class="w-full bg-slate-100 border border-slate-200 rounded-lg text-[11px] p-1.5 font-medium text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500 truncate">
-                        <option value="">デフォルト音声</option>
-                    </select>
-                    <span class="text-[10px] text-slate-400 mt-0.5 ml-0.5">音声モデル</span>
-                </div>
-
                 <!-- 制御ボタン群 -->
-                <div class="flex items-center space-x-4">
+                <div class="flex items-center space-x-6">
                     <!-- 前へ -->
                     <button id="prev-btn" class="p-2.5 text-slate-600 hover:text-blue-600 active:scale-95 transition flex flex-col items-center" title="前の文へ">
                         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M11 19l-7-7 7-7m8 14l-7-7 7-7"/></svg>
+                        <span class="text-[10px] text-slate-400 mt-0.5">前へ</span>
                     </button>
 
                     <!-- 再生 / 一時停止 -->
@@ -164,12 +157,13 @@
                     <!-- 次へ -->
                     <button id="next-btn" class="p-2.5 text-slate-600 hover:text-blue-600 active:scale-95 transition flex flex-col items-center" title="次の文へ">
                         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 5l7 7-7 7M5 5l7 7-7 7"/></svg>
+                        <span class="text-[10px] text-slate-400 mt-0.5">次へ</span>
                     </button>
                 </div>
 
                 <!-- 再生速度 -->
-                <div class="flex flex-col items-end w-24">
-                    <select id="rate-select" class="bg-slate-100 border border-slate-200 rounded-lg text-[11px] p-1.5 font-medium text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500">
+                <div class="flex flex-col items-center">
+                    <select id="rate-select" class="bg-slate-100 border border-slate-200 rounded-lg text-xs p-1.5 font-medium text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500">
                         <option value="0.5">0.5x</option>
                         <option value="0.75">0.75x</option>
                         <option value="1" selected>1.0x</option>
@@ -177,7 +171,7 @@
                         <option value="1.5">1.5x</option>
                         <option value="2">2.0x</option>
                     </select>
-                    <span class="text-[10px] text-slate-400 mt-0.5 mr-0.5">再生速度</span>
+                    <span class="text-[10px] text-slate-400 mt-0.5">再生速度</span>
                 </div>
 
             </div>
@@ -212,7 +206,6 @@ Let's make this a daily habit for better fluency!`;
         const prevBtn = document.getElementById('prev-btn');
         const nextBtn = document.getElementById('next-btn');
         const rateSelect = document.getElementById('rate-select');
-        const voiceSelect = document.getElementById('voice-select');
         const progressBar = document.getElementById('progress-bar');
         const currentPositionLabel = document.getElementById('current-position-label');
 
@@ -222,7 +215,6 @@ Let's make this a daily habit for better fluency!`;
         let sentences = [];
         let currentIndex = 0;
         let isPlaying = false;
-        let availableVoices = [];
 
         // バックグラウンド維持用ダミー音声の作成
         function createSilentAudio() {
@@ -259,36 +251,8 @@ Let's make this a daily habit for better fluency!`;
             bgAudio.src = URL.createObjectURL(blob);
         }
 
-        // 音声一覧の初期化
-        function loadVoices() {
-            if (!('speechSynthesis' in window)) return;
-            
-            const populate = () => {
-                availableVoices = window.speechSynthesis.getVoices().filter(v => v.lang.startsWith('en'));
-                voiceSelect.innerHTML = '';
-                
-                if (availableVoices.length === 0) {
-                    voiceSelect.innerHTML = '<option value="">英語音声（標準）</option>';
-                    return;
-                }
-
-                availableVoices.forEach((voice, i) => {
-                    const opt = document.createElement('option');
-                    opt.value = i;
-                    opt.textContent = `${voice.name.replace(/Google|Microsoft|Apple/g, '').trim()} (${voice.lang})`;
-                    voiceSelect.appendChild(opt);
-                });
-            };
-
-            populate();
-            if (speechSynthesis.onvoiceschanged !== undefined) {
-                speechSynthesis.onvoiceschanged = populate;
-            }
-        }
-
         // 初期化処理
         createSilentAudio();
-        loadVoices();
         englishInput.value = localStorage.getItem('listening_eng') || defaultEnglish;
         parseAndRender();
 
@@ -402,11 +366,6 @@ Let's make this a daily habit for better fluency!`;
             const currentUtterance = new SpeechSynthesisUtterance(textToSpeak);
             currentUtterance.lang = 'en-US';
             currentUtterance.rate = parseFloat(rateSelect.value);
-
-            // 指定された声を設定
-            if (voiceSelect.value !== '' && availableVoices[voiceSelect.value]) {
-                currentUtterance.voice = availableVoices[voiceSelect.value];
-            }
 
             currentUtterance.onend = () => {
                 if (!isPlaying) return;
@@ -566,12 +525,6 @@ Let's make this a daily habit for better fluency!`;
         });
 
         rateSelect.addEventListener('change', () => {
-            if (isPlaying) {
-                playSentence(currentIndex);
-            }
-        });
-
-        voiceSelect.addEventListener('change', () => {
             if (isPlaying) {
                 playSentence(currentIndex);
             }
