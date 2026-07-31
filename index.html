@@ -164,27 +164,31 @@
                     </button>
                 </div>
 
-                <!-- 再生速度 -->
-                <div class="flex flex-col items-center">
-                    <select id="rate-select" class="bg-slate-100 border border-slate-200 rounded-lg text-xs p-1.5 font-medium text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500">
-                        <option value="0.5">0.5x</option>
-                        <option value="0.75">0.75x</option>
-                        <option value="1" selected>1.0x</option>
-                        <option value="1.25">1.25x</option>
-                        <option value="1.5">1.5x</option>
-                        <option value="2">2.0x</option>
-                    </select>
-                    <span class="text-[10px] text-slate-400 mt-0.5">再生速度</span>
+                <!-- 音声選択 & 再生速度 -->
+                <div class="flex items-center space-x-2">
+                    <div class="flex flex-col items-center">
+                        <select id="rate-select" class="bg-slate-100 border border-slate-200 rounded-lg text-xs p-1.5 font-medium text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500">
+                            <option value="0.5">0.5x</option>
+                            <option value="0.75">0.75x</option>
+                            <option value="1" selected>1.0x</option>
+                            <option value="1.25">1.25x</option>
+                            <option value="1.5">1.5x</option>
+                            <option value="2">2.0x</option>
+                        </select>
+                        <span class="text-[10px] text-slate-400 mt-0.5">再生速度</span>
+                    </div>
                 </div>
 
             </div>
         </div>
     </footer>
 
-    <!-- バックグラウンド維持用の隠しオーディオ要素 -->
-    <audio id="bg-audio" loop playsinline style="display:none;"></audio>
+    <!-- バックグラウンド維持および音声再生用のメインオーディオ要素 -->
+    <audio id="bg-audio" playsinline style="display:none;"></audio>
 
     <script>
+        const API_BASE_URL = 'https://onnsei-80988359742.asia-northeast1.run.app';
+
         const defaultEnglish = `Hello and welcome to this English listening practice session.
 Regular input is the key to improving your listening skills.
 Try to follow the subtitles as you listen to each sentence.
@@ -213,7 +217,7 @@ Let's make this a daily habit for better fluency!`;
         const currentPositionLabel = document.getElementById('current-position-label');
         const timeDisplay = document.getElementById('time-display');
 
-        const bgAudio = document.getElementById('bg-audio');
+        const audioPlayer = document.getElementById('bg-audio');
 
         // 状態変数
         let sentences = [];
@@ -223,49 +227,14 @@ Let's make this a daily habit for better fluency!`;
 
         let currentIndex = 0;
         let isPlaying = false;
+        let audioCache = {}; // 取得した音声のキャッシュ
 
         // タイマー・時間計測用
         let timerInterval = null;
         let sentenceStartTime = 0;
         let elapsedBeforeCurrent = 0;
 
-        // バックグラウンド維持用ダミー音声の作成
-        function createSilentAudio() {
-            const sampleRate = 8000;
-            const numChannels = 1;
-            const bitsPerSample = 16;
-            const blockAlign = (numChannels * bitsPerSample) / 8;
-            const byteRate = sampleRate * blockAlign;
-            const dataSize = sampleRate * blockAlign * 1;
-            const buffer = new ArrayBuffer(44 + dataSize);
-            const view = new DataView(buffer);
-
-            function writeString(view, offset, string) {
-                for (let i = 0; i < string.length; i++) {
-                    view.setUint8(offset + i, string.charCodeAt(i));
-                }
-            }
-
-            writeString(view, 0, 'RIFF');
-            view.setUint32(4, 36 + dataSize, true);
-            writeString(view, 8, 'WAVE');
-            writeString(view, 12, 'fmt ');
-            view.setUint32(16, 16, true);
-            view.setUint16(20, 1, true);
-            view.setUint16(22, numChannels, true);
-            view.setUint32(24, sampleRate, true);
-            view.setUint32(28, byteRate, true);
-            view.setUint16(32, blockAlign, true);
-            view.setUint16(34, bitsPerSample, true);
-            writeString(view, 36, 'data');
-            view.setUint32(40, dataSize, true);
-
-            const blob = new Blob([view], { type: 'audio/wav' });
-            bgAudio.src = URL.createObjectURL(blob);
-        }
-
         // 初期化処理
-        createSilentAudio();
         englishInput.value = localStorage.getItem('listening_eng') || defaultEnglish;
         parseAndRender();
 
@@ -296,6 +265,7 @@ Let's make this a daily habit for better fluency!`;
 
         saveBtn.addEventListener('click', () => {
             localStorage.setItem('listening_eng', englishInput.value);
+            audioCache = {}; // キャッシュのクリア
             parseAndRender();
             inputSection.classList.add('hidden');
             stopAudio();
@@ -320,7 +290,6 @@ Let's make this a daily habit for better fluency!`;
             return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
         }
 
-        // 再生時間の計算ロジック
         function calculateDurations() {
             const rate = parseFloat(rateSelect.value) || 1.0;
             sentenceDurations = [];
@@ -339,11 +308,9 @@ Let's make this a daily habit for better fluency!`;
             updateTimerDisplay();
         }
 
-        // テキストの解析と描画
         function parseAndRender() {
             const engText = englishInput.value.trim();
             
-            // 文区切りロジック
             sentences = engText ? engText.match(/[^.!?\n]+[.!?\n]*/g) || [engText] : [];
             sentences = sentences.map(s => s.trim()).filter(s => s.length > 0);
 
@@ -378,7 +345,6 @@ Let's make this a daily habit for better fluency!`;
                 flexDiv.appendChild(engP);
                 div.appendChild(flexDiv);
 
-                // タップ時処理
                 div.addEventListener('click', () => {
                     currentIndex = idx;
                     playSentence(currentIndex);
@@ -392,7 +358,6 @@ Let's make this a daily habit for better fluency!`;
             updateTimerDisplay();
         }
 
-        // タイマー開始
         function startTimer() {
             stopTimer();
             sentenceStartTime = Date.now();
@@ -406,7 +371,6 @@ Let's make this a daily habit for better fluency!`;
             }, 200);
         }
 
-        // タイマー停止
         function stopTimer() {
             if (timerInterval) {
                 clearInterval(timerInterval);
@@ -414,30 +378,132 @@ Let's make this a daily habit for better fluency!`;
             }
         }
 
-        // タイマー表示の手動更新
         function updateTimerDisplay() {
             const currentTotalElapsed = cumulativeDurations[currentIndex] || 0;
             timeDisplay.textContent = `${formatTime(currentTotalElapsed)} / ${formatTime(totalEstimatedTime)}`;
         }
 
-        // 文の再生
-        function playSentence(index) {
+        async function fetchExternalAudio(text, rate) {
+            const cacheKey = `${text}_${rate}`;
+
+            if (audioCache[cacheKey]) {
+                return audioCache[cacheKey];
+            }
+
+            try {
+                const params = new URLSearchParams({
+                    text: text,
+                    rate: rate,
+                    speed: rate,
+                    lang: 'en-US'
+                });
+
+                const queryUrl = `${API_BASE_URL}/?${params.toString()}`;
+                const response = await fetch(queryUrl, {
+                    method: 'GET',
+                    headers: { 'Accept': 'audio/mpeg, audio/wav, audio/*, application/json' }
+                });
+
+                if (!response.ok) {
+                    const postResponse = await fetch(`${API_BASE_URL}/`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text, rate, speed: rate, lang: 'en-US' })
+                    });
+                    
+                    if (!postResponse.ok) throw new Error('API Response not ok');
+                    
+                    const contentType = postResponse.headers.get('content-type');
+                    if (contentType && contentType.includes('application/json')) {
+                        const json = await postResponse.json();
+                        const audioUrl = json.url || json.audioUrl || json.audio || json.file;
+                        if (audioUrl) {
+                            audioCache[cacheKey] = audioUrl;
+                            return audioUrl;
+                        }
+                    } else {
+                        const blob = await postResponse.blob();
+                        const blobUrl = URL.createObjectURL(blob);
+                        audioCache[cacheKey] = blobUrl;
+                        return blobUrl;
+                    }
+                }
+
+                const contentType = response.headers.get('content-type');
+                if (contentType && contentType.includes('application/json')) {
+                    const json = await response.json();
+                    const audioUrl = json.url || json.audioUrl || json.audio || json.file;
+                    if (audioUrl) {
+                        audioCache[cacheKey] = audioUrl;
+                        return audioUrl;
+                    }
+                }
+
+                const blob = await response.blob();
+                const blobUrl = URL.createObjectURL(blob);
+                audioCache[cacheKey] = blobUrl;
+                return blobUrl;
+
+            } catch (err) {
+                console.warn('External TTS API unavailable, fallback to Web Speech API:', err);
+                return null;
+            }
+        }
+
+        async function playSentence(index) {
             if (index < 0 || index >= sentences.length) {
                 stopAudio();
                 return;
             }
 
-            window.speechSynthesis.cancel();
+            stopAudio();
+
             currentIndex = index;
             updateHighlight();
-
-            // バックグラウンド音声を再生してオーディオセッションを維持
-            bgAudio.play().catch(() => {});
+            isPlaying = true;
+            updatePlayButtonState();
 
             const textToSpeak = sentences[currentIndex];
+            const currentRate = parseFloat(rateSelect.value);
+
+            const audioSrc = await fetchExternalAudio(textToSpeak, currentRate);
+
+            if (audioSrc && isPlaying) {
+                audioPlayer.src = audioSrc;
+                audioPlayer.playbackRate = 1.0;
+                
+                audioPlayer.onended = () => {
+                    if (!isPlaying) return;
+                    if (currentIndex < sentences.length - 1) {
+                        playSentence(currentIndex + 1);
+                    } else {
+                        stopAudio();
+                        timeDisplay.textContent = `${formatTime(totalEstimatedTime)} / ${formatTime(totalEstimatedTime)}`;
+                    }
+                };
+
+                audioPlayer.onerror = () => {
+                    playWithWebSpeech(textToSpeak, currentRate);
+                };
+
+                audioPlayer.play().then(() => {
+                    startTimer();
+                    updateMediaSession(textToSpeak);
+                }).catch(() => {
+                    playWithWebSpeech(textToSpeak, currentRate);
+                });
+
+            } else if (isPlaying) {
+                playWithWebSpeech(textToSpeak, currentRate);
+            }
+        }
+
+        function playWithWebSpeech(textToSpeak, rate) {
+            window.speechSynthesis.cancel();
+
             const currentUtterance = new SpeechSynthesisUtterance(textToSpeak);
             currentUtterance.lang = 'en-US';
-            currentUtterance.rate = parseFloat(rateSelect.value);
+            currentUtterance.rate = rate;
 
             currentUtterance.onstart = () => {
                 startTimer();
@@ -445,12 +511,10 @@ Let's make this a daily habit for better fluency!`;
 
             currentUtterance.onend = () => {
                 if (!isPlaying) return;
-                
                 if (currentIndex < sentences.length - 1) {
                     playSentence(currentIndex + 1);
                 } else {
                     stopAudio();
-                    // 最後まで到達したらタイマーをトータル時間に合わせる
                     timeDisplay.textContent = `${formatTime(totalEstimatedTime)} / ${formatTime(totalEstimatedTime)}`;
                 }
             };
@@ -460,13 +524,10 @@ Let's make this a daily habit for better fluency!`;
             };
 
             window.speechSynthesis.speak(currentUtterance);
-            isPlaying = true;
-            updatePlayButtonState();
             updateMediaSession(textToSpeak);
             startTimer();
         }
 
-        // MediaSession API設定（ロック画面・通知領域での制御）
         function updateMediaSession(text) {
             if ('mediaSession' in navigator) {
                 navigator.mediaSession.metadata = new MediaMetadata({
@@ -490,7 +551,6 @@ Let's make this a daily habit for better fluency!`;
             }
         }
 
-        // 字幕コンテナ専用スクロール処理
         function scrollContainerToActiveItem(activeItem) {
             if (!activeItem || !subtitlesContainer) return;
 
@@ -506,7 +566,6 @@ Let's make this a daily habit for better fluency!`;
             });
         }
 
-        // ハイライトとスクロール位置の更新
         function updateHighlight() {
             const items = subtitlesContainer.querySelectorAll('.sentence-card');
             let activeElement = null;
@@ -540,7 +599,7 @@ Let's make this a daily habit for better fluency!`;
 
         function stopAudio() {
             window.speechSynthesis.cancel();
-            bgAudio.pause();
+            audioPlayer.pause();
             isPlaying = false;
             stopTimer();
             updatePlayButtonState();
