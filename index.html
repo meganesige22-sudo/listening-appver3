@@ -18,7 +18,6 @@
             -webkit-tap-highlight-color: transparent;
         }
 
-        /* スムーズかつ自然なハイライトアニメーション */
         .sentence-card {
             transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
         }
@@ -30,7 +29,6 @@
             transform: scale(1.01);
         }
 
-        /* スクロールバーのカスタマイズ */
         #subtitles-container::-webkit-scrollbar {
             width: 6px;
         }
@@ -111,13 +109,15 @@
         </section>
 
         <!-- 字幕表示エリア -->
-        <section class="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden flex flex-col" style="height: calc(100vh - 280px); min-height: 380px;">
+        <section class="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden flex flex-col" style="height: calc(100vh - 290px); min-height: 380px;">
             <div class="px-4 py-3 bg-slate-50 border-b border-slate-100 text-xs font-semibold text-slate-500 flex justify-between items-center shrink-0">
                 <span class="flex items-center space-x-1.5">
                     <span class="w-2 h-2 rounded-full bg-blue-500 inline-block"></span>
                     <span>スクリプト（タップで再生）</span>
                 </span>
-                <span id="current-position-label" class="bg-slate-200/70 text-slate-600 font-mono px-2 py-0.5 rounded-full text-[11px]">0 / 0</span>
+                <div class="flex items-center space-x-2">
+                    <span id="current-position-label" class="bg-slate-200/70 text-slate-600 font-mono px-2 py-0.5 rounded-full text-[11px]">0 / 0</span>
+                </div>
             </div>
             <div id="subtitles-container" class="p-3 space-y-2.5 overflow-y-auto flex-1 scroll-smooth">
                 <div class="text-center text-slate-400 py-12 text-sm">
@@ -130,15 +130,18 @@
 
     <!-- 固定コントロール（画面下部） -->
     <footer class="sticky bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200 p-4 shadow-lg z-30">
-        <div class="max-w-xl mx-auto space-y-3">
+        <div class="max-w-xl mx-auto space-y-2.5">
             
-            <!-- プログレスバー -->
-            <div class="flex items-center space-x-2 px-1">
+            <!-- タイムカウンター & プログレスバー -->
+            <div class="space-y-1 px-1">
+                <div class="flex justify-between items-center text-[11px] font-mono text-slate-500">
+                    <span id="time-display" class="text-blue-600 font-semibold">00:00 / 00:00</span>
+                </div>
                 <input type="range" id="progress-bar" min="0" max="100" value="0" class="w-full accent-blue-600 h-1.5 bg-slate-200 rounded-lg cursor-pointer">
             </div>
 
             <!-- メインコントローラー -->
-            <div class="flex items-center justify-around px-2">
+            <div class="flex items-center justify-around px-2 pt-1">
                 
                 <!-- 制御ボタン群 -->
                 <div class="flex items-center space-x-6">
@@ -208,13 +211,23 @@ Let's make this a daily habit for better fluency!`;
         const rateSelect = document.getElementById('rate-select');
         const progressBar = document.getElementById('progress-bar');
         const currentPositionLabel = document.getElementById('current-position-label');
+        const timeDisplay = document.getElementById('time-display');
 
         const bgAudio = document.getElementById('bg-audio');
 
         // 状態変数
         let sentences = [];
+        let sentenceDurations = []; // 各文の推定秒数
+        let cumulativeDurations = []; // 累積時間
+        let totalEstimatedTime = 0; // 全体の推定秒数
+
         let currentIndex = 0;
         let isPlaying = false;
+
+        // タイマー・時間計測用
+        let timerInterval = null;
+        let sentenceStartTime = 0;
+        let elapsedBeforeCurrent = 0;
 
         // バックグラウンド維持用ダミー音声の作成
         function createSilentAudio() {
@@ -299,6 +312,33 @@ Let's make this a daily habit for better fluency!`;
             }, 2000);
         }
 
+        // 秒数を mm:ss フォーマットに変換する関数
+        function formatTime(seconds) {
+            const sec = Math.max(0, Math.floor(seconds));
+            const m = Math.floor(sec / 60);
+            const s = sec % 60;
+            return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+        }
+
+        // 再生時間の計算ロジック
+        function calculateDurations() {
+            const rate = parseFloat(rateSelect.value) || 1.0;
+            sentenceDurations = [];
+            cumulativeDurations = [0];
+            totalEstimatedTime = 0;
+
+            sentences.forEach(s => {
+                const words = s.trim().split(/\s+/).filter(w => w.length > 0).length;
+                const duration = Math.max(1.2, (words / 2.3)) / rate;
+                
+                sentenceDurations.push(duration);
+                totalEstimatedTime += duration;
+                cumulativeDurations.push(totalEstimatedTime);
+            });
+
+            updateTimerDisplay();
+        }
+
         // テキストの解析と描画
         function parseAndRender() {
             const engText = englishInput.value.trim();
@@ -312,8 +352,11 @@ Let's make this a daily habit for better fluency!`;
             if (sentences.length === 0) {
                 subtitlesContainer.innerHTML = '<div class="text-center text-slate-400 py-12 text-sm">英文が登録されていません。<br>「英文設定」から登録してください。</div>';
                 currentPositionLabel.textContent = '0 / 0';
+                timeDisplay.textContent = '00:00 / 00:00';
                 return;
             }
+
+            calculateDurations();
 
             sentences.forEach((sent, idx) => {
                 const div = document.createElement('div');
@@ -335,7 +378,7 @@ Let's make this a daily habit for better fluency!`;
                 flexDiv.appendChild(engP);
                 div.appendChild(flexDiv);
 
-                // 単語・文のタップ時処理
+                // タップ時処理
                 div.addEventListener('click', () => {
                     currentIndex = idx;
                     playSentence(currentIndex);
@@ -346,6 +389,35 @@ Let's make this a daily habit for better fluency!`;
 
             currentPositionLabel.textContent = `1 / ${sentences.length}`;
             updateProgress();
+            updateTimerDisplay();
+        }
+
+        // タイマー開始
+        function startTimer() {
+            stopTimer();
+            sentenceStartTime = Date.now();
+            elapsedBeforeCurrent = cumulativeDurations[currentIndex] || 0;
+
+            timerInterval = setInterval(() => {
+                if (!isPlaying) return;
+                const currentSentenceElapsed = (Date.now() - sentenceStartTime) / 1000;
+                const currentTotalElapsed = Math.min(totalEstimatedTime, elapsedBeforeCurrent + currentSentenceElapsed);
+                timeDisplay.textContent = `${formatTime(currentTotalElapsed)} / ${formatTime(totalEstimatedTime)}`;
+            }, 200);
+        }
+
+        // タイマー停止
+        function stopTimer() {
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+            }
+        }
+
+        // タイマー表示の手動更新
+        function updateTimerDisplay() {
+            const currentTotalElapsed = cumulativeDurations[currentIndex] || 0;
+            timeDisplay.textContent = `${formatTime(currentTotalElapsed)} / ${formatTime(totalEstimatedTime)}`;
         }
 
         // 文の再生
@@ -367,6 +439,10 @@ Let's make this a daily habit for better fluency!`;
             currentUtterance.lang = 'en-US';
             currentUtterance.rate = parseFloat(rateSelect.value);
 
+            currentUtterance.onstart = () => {
+                startTimer();
+            };
+
             currentUtterance.onend = () => {
                 if (!isPlaying) return;
                 
@@ -374,6 +450,8 @@ Let's make this a daily habit for better fluency!`;
                     playSentence(currentIndex + 1);
                 } else {
                     stopAudio();
+                    // 最後まで到達したらタイマーをトータル時間に合わせる
+                    timeDisplay.textContent = `${formatTime(totalEstimatedTime)} / ${formatTime(totalEstimatedTime)}`;
                 }
             };
 
@@ -385,6 +463,7 @@ Let's make this a daily habit for better fluency!`;
             isPlaying = true;
             updatePlayButtonState();
             updateMediaSession(textToSpeak);
+            startTimer();
         }
 
         // MediaSession API設定（ロック画面・通知領域での制御）
@@ -411,10 +490,7 @@ Let's make this a daily habit for better fluency!`;
             }
         }
 
-        /**
-         * 画面全体の乱れを防ぐ字幕コンテナ専用スクロール処理
-         * scrollIntoView() の代わりに、#subtitles-container の内部 scrollTop のみを変更
-         */
+        // 字幕コンテナ専用スクロール処理
         function scrollContainerToActiveItem(activeItem) {
             if (!activeItem || !subtitlesContainer) return;
 
@@ -422,7 +498,6 @@ Let's make this a daily habit for better fluency!`;
             const itemTop = activeItem.offsetTop - subtitlesContainer.offsetTop;
             const itemHeight = activeItem.clientHeight;
 
-            // アイテムがコンテナの中央付近に配置されるように計算
             const targetScrollTop = itemTop - (containerHeight / 2) + (itemHeight / 2);
 
             subtitlesContainer.scrollTo({
@@ -451,6 +526,7 @@ Let's make this a daily habit for better fluency!`;
 
             currentPositionLabel.textContent = `${currentIndex + 1} / ${sentences.length}`;
             updateProgress();
+            updateTimerDisplay();
         }
 
         function updateProgress() {
@@ -466,6 +542,7 @@ Let's make this a daily habit for better fluency!`;
             window.speechSynthesis.cancel();
             bgAudio.pause();
             isPlaying = false;
+            stopTimer();
             updatePlayButtonState();
         }
 
@@ -525,8 +602,11 @@ Let's make this a daily habit for better fluency!`;
         });
 
         rateSelect.addEventListener('change', () => {
+            calculateDurations();
             if (isPlaying) {
                 playSentence(currentIndex);
+            } else {
+                updateTimerDisplay();
             }
         });
     </script>
